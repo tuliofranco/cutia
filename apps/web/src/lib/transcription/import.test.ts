@@ -203,3 +203,23 @@ test("does not insert into another scene if the scene changes during generation"
 	expect(editor.timeline.getTracks()).toEqual([]);
 	expect(editor.media.getAssets()).toEqual([]);
 });
+
+test("places SRT cues at their own timestamps, ignoring the playhead", async () => {
+	await importCaptions({
+		...options(),
+		text: [
+			"1",
+			"00:00:00,500 --> 00:00:02,000",
+			"Oi, tudo bem?",
+			"",
+			"2",
+			"00:00:03,000 --> 00:00:04,250",
+			"Hoje eu vou",
+			"mostrar",
+		].join("\n"),
+	});
+	expect(editor.timeline.getTracks()[0].elements).toMatchObject([
+		{ content: "Oi, tudo bem?", startTime: 0.5, duration: 1.5 },
+		{ content: "Hoje eu vou mostrar", startTime: 3, duration: 1.25 },
+	]);
+});

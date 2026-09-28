@@ -14,12 +14,19 @@ import {
 import { i18next } from "@/lib/i18n";
 import { buildUploadAudioElement } from "@/lib/timeline/element-utils";
 import { generateSpeechFromText, type TtsResult } from "@/lib/tts/service";
+import { parseTimedCaptions } from "./subtitle-file";
 
 export function parseCaptionLines({ text }: { text: string }): string[] {
 	return text
 		.split(/\r\n?|\n/)
 		.map((line) => line.trim())
 		.filter(Boolean);
+}
+
+/** Caption texts in import order: SRT/VTT cues when timed, otherwise lines. */
+export function parseCaptionTexts({ text }: { text: string }): string[] {
+	const timed = parseTimedCaptions({ text });
+	return timed ? timed.map((cue) => cue.text) : parseCaptionLines({ text });
 }
 
 export async function importCaptions({
@@ -39,8 +46,11 @@ export async function importCaptions({
 	startTime: number;
 	onProgress?: (completed: number, total: number) => void;
 }): Promise<void> {
-	const lines = parseCaptionLines({ text });
-	const secondaryLines = parseCaptionLines({ text: secondaryText });
+	// Timed files (SRT/VTT) keep their own timestamps, measured from the
+	// start of the timeline, instead of being stacked at the playhead.
+	const timedCues = parseTimedCaptions({ text });
+	const lines = parseCaptionTexts({ text });
+	const secondaryLines = parseCaptionTexts({ text: secondaryText });
 	if (lines.length === 0) {
 		throw new Error(i18next.t("Enter at least one line of subtitles"));
 	}
@@ -105,10 +115,13 @@ export async function importCaptions({
 		((template.fontSize + secondaryFontSize) / 2);
 	let nextStartTime = startTime;
 	for (const [index, line] of lines.entries()) {
+		const cue = timedCues?.[index];
+		const captionStartTime = cue ? cue.startTime : nextStartTime;
 		const caption = createSubtitleFromTemplate({
 			template,
-			startTime: nextStartTime,
+			startTime: captionStartTime,
 		});
+		if (cue) caption.duration = cue.duration;
 		const speech = speechResults[index];
 		if (speech && audioTrack) {
 			const name = `TTS: ${line.slice(0, 30)}`;
@@ -128,12 +141,12 @@ export async function importCaptions({
 						mediaId: media.getAssetId(),
 						name,
 						duration: speech.duration,
-						startTime: nextStartTime,
+						startTime: captionStartTime,
 						buffer: speech.buffer,
 					}),
 				}),
 			);
-			caption.duration = speech.duration;
+			if (!cue) caption.duration = speech.duration;
 		}
 		commands.push(
 			new InsertElementCommand({

@@ -29,7 +29,8 @@ import type {
 import { transcriptionService } from "@/services/transcription/service";
 import { decodeAudioToFloat32 } from "@/lib/media/audio";
 import { buildCaptionChunks } from "@/lib/transcription/caption";
-import { parseCaptionLines } from "@/lib/transcription/import";
+import { parseCaptionTexts } from "@/lib/transcription/import";
+import { parseTimedCaptions } from "@/lib/transcription/subtitle-file";
 import { Spinner } from "@/components/ui/spinner";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
@@ -64,13 +65,24 @@ function ProjectCaptions({ projectId }: { projectId: string }) {
 	});
 	const [isEditingSecondary, setIsEditingSecondary] = useState(false);
 	const primaryLineCount = useMemo(
-		() => parseCaptionLines({ text: captionText }).length,
+		() => parseCaptionTexts({ text: captionText }).length,
 		[captionText],
 	);
 	const secondaryLineCount = useMemo(
-		() => parseCaptionLines({ text: secondaryCaptionText }).length,
+		() => parseCaptionTexts({ text: secondaryCaptionText }).length,
 		[secondaryCaptionText],
 	);
+	const timedCueCount = useMemo(
+		() => parseTimedCaptions({ text: captionText })?.length ?? 0,
+		[captionText],
+	);
+	const subtitleFileInputRef = useRef<HTMLInputElement>(null);
+
+	const handleSubtitleFile = async ({ file }: { file: File }) => {
+		const content = await file.text();
+		if (isEditingSecondary) setSecondaryCaptionText({ value: content });
+		else setCaptionText({ value: content });
+	};
 	const isLineCountMismatched =
 		secondaryLineCount > 0 && secondaryLineCount !== primaryLineCount;
 	const [generateSpeech, setGenerateSpeech] = useLocalStorage({
@@ -281,6 +293,26 @@ function ProjectCaptions({ projectId }: { projectId: string }) {
 								</TabsList>
 							</Tabs>
 						</div>
+						<input
+							ref={subtitleFileInputRef}
+							type="file"
+							accept=".srt,.vtt,application/x-subrip,text/vtt"
+							className="hidden"
+							onChange={(event) => {
+								const file = event.target.files?.[0];
+								if (file) void handleSubtitleFile({ file });
+								event.target.value = "";
+							}}
+						/>
+						<Button
+							type="button"
+							variant="outline"
+							className="w-full"
+							onClick={() => subtitleFileInputRef.current?.click()}
+							disabled={isProcessing}
+						>
+							{t("Load .srt or .vtt file")}
+						</Button>
 						<Textarea
 							id="caption-import-text"
 							className="min-h-60"
@@ -328,7 +360,12 @@ function ProjectCaptions({ projectId }: { projectId: string }) {
 							</Label>
 						</div>
 						<p className="text-muted-foreground text-xs">
-							{generateSpeech
+							{timedCueCount > 0
+								? t(
+										"Timed subtitles detected: {{total}}. Each one keeps its own time, counted from the start of the timeline.",
+										{ total: timedCueCount },
+									)
+								: generateSpeech
 								? t(
 										"Each line gets matching speech. Subtitles and audio start at the playhead.",
 									)
